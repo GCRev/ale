@@ -217,6 +217,11 @@ function! ale#completion#Filter(
             " Some completion tools will include suggestions which don't even
             " start with the characters we have already typed.
             for l:item in a:suggestions
+                if get(l:item, 'force_show', 0)
+                  call add(l:filtered_suggestions, l:item)
+                  continue
+                endif 
+
                 " A List of String values or a List of completion item
                 " Dictionaries is accepted here.
                 let l:word = type(l:item) is v:t_string ? l:item : l:item.word
@@ -298,6 +303,13 @@ endfunction
 function! ale#completion#GetCompletionPosition() abort
     if !exists('b:ale_completion_info')
         return 0
+    endif
+
+    " if text_edit object is present, the immediately return the column. No
+    " need to calculate anything, as the lsp has told us where completion
+    " should start
+    if has_key(b:ale_completion_info, 'text_edit')
+      return b:ale_completion_info.text_edit.column - 1
     endif
 
     let l:line = b:ale_completion_info.line
@@ -570,14 +582,31 @@ function! ale#completion#ParseLSPCompletions(response) abort
 
     let l:results = []
 
+    " remove the text_edit construct from the info object in prep for parsing
+    " the items list 
+    if has_key(l:info, 'text_edit')
+      call remove(l:info, 'text_edit')
+    endif
+
     for l:item in l:item_list
         if !call(l:Filter, [l:buffer, l:item])
             continue
         endif
 
+        let l:force_show = 0
+        
         if get(l:item, 'insertTextFormat') is s:LSP_INSERT_TEXT_FORMAT_PLAIN
         \&& type(get(l:item, 'textEdit')) is v:t_dict
-            let l:text = l:item.textEdit.newText
+            let l:edit = l:item.textEdit
+            let l:text = l:edit.newText
+            " this is a hack - force these entries into the list without
+            " matching any prefixes. VIM's suggestions feature will handle
+            " filtering over suggestions automatically as the user types
+            let l:force_show = 1
+            let l:info.text_edit = {
+                  \   'line': l:edit.range.start.line + 1,
+                  \   'column': l:edit.range.start.character + 1
+                  \ }
         elseif type(get(l:item, 'insertText')) is v:t_string
             let l:text = l:item.insertText
         else
@@ -616,8 +645,13 @@ function! ale#completion#ParseLSPCompletions(response) abort
         \   'menu': l:detail,
         \   'dup': get(l:info, 'additional_edits_only', 0)
         \       ||  g:ale_completion_autoimport,
-        \   'info': (type(l:doc) is v:t_string ? l:doc : ''),
+        \   'info': (type(l:doc) is v:t_string ? l:doc : '')
         \}
+
+        if l:force_show
+          let l:result.force_show = 1
+        endif
+
         " This flag is used to tell if this completion came from ALE or not.
         let l:user_data = {'_ale_completion_item': 1}
 
@@ -738,7 +772,6 @@ function! ale#completion#HandleTSServerResponse(conn_id, response) abort
     endif
 endfunction
 
-
 function! ale#completion#HandleLSPResponse(conn_id, response) abort
     if !s:CompletionStillValid(get(a:response, 'id'))
         return
@@ -858,6 +891,14 @@ function! ale#completion#GetCompletions(...) abort
 
     let l:line_length = len(getline('.'))
 
+    " this is a hack: propagate an existing text_edit to the next iteration of
+    " the completion info to force the textEdit construct from the lsp message
+    " to be used again. Otherwise it would be lost
+    let l:text_edit = {}
+    if exists('b:ale_completion_info') 
+        let l:text_edit = get(b:ale_completion_info, 'text_edit')
+    endif
+
     let b:ale_completion_info = {
     \   'line': l:line,
     \   'line_length': l:line_length,
@@ -865,8 +906,15 @@ function! ale#completion#GetCompletions(...) abort
     \   'prefix': l:prefix,
     \   'conn_id': 0,
     \   'request_id': 0,
-    \   'source': l:source,
+    \   'source': l:source
     \}
+
+    " add onto completion info if text_edit exists
+    " and the line number is the same
+    if !empty(l:text_edit) && l:text_edit.line == l:line
+        let  b:ale_completion_info.text_edit = l:text_edit
+    endif
+
     unlet! b:ale_completion_result
 
     if has_key(l:options, 'additional_edits_only')

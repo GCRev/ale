@@ -10,19 +10,19 @@ call ale#Set('java_eclipselsp_executable', 'java')
 call ale#Set('java_eclipselsp_javaagent', '')
 
 function! ale_linters#java#eclipselsp#Executable(buffer) abort
-    return ale#Var(a:buffer, 'java_eclipselsp_executable')
+  return ale#Var(a:buffer, 'java_eclipselsp_executable')
 endfunction
 
 function! ale_linters#java#eclipselsp#TargetPath(buffer) abort
-    return ale#Var(a:buffer, 'java_eclipselsp_path')
+  return ale#Var(a:buffer, 'java_eclipselsp_path')
 endfunction
 
 function! ale_linters#java#eclipselsp#JarPath(buffer) abort
-    let l:path = ale_linters#java#eclipselsp#TargetPath(a:buffer)
+  let l:path = ale_linters#java#eclipselsp#TargetPath(a:buffer)
 
-    if has('win32')
-        let l:platform = 'win32'
-    elseif has('macunix')
+  if has('win32')
+    let l:platform = 'win32'
+  elseif has('macunix')
         let l:platform = 'macosx'
     else
         let l:platform = 'linux'
